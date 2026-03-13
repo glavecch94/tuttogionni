@@ -3,7 +3,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { CheckCircle, Circle, Dumbbell, Trophy, ArrowLeft, Timer, Settings, SkipForward } from 'lucide-react';
 import { workoutPlanApi } from '../services/api';
-import type { Difficulty } from '../types';
+import type { CardioType, Difficulty, WorkoutDaySummary } from '../types';
+import { CARDIO_TYPE_LABELS } from '../types';
 
 function formatTime(totalSeconds: number): string {
   const h = Math.floor(totalSeconds / 3600);
@@ -47,12 +48,15 @@ export default function TodayWorkoutPage() {
   const [notes, setNotes] = useState('');
   const [showCompleteModal, setShowCompleteModal] = useState(false);
   const [feedbacks, setFeedbacks] = useState<Record<number, Difficulty>>({});
+  const [editingFeedback, setEditingFeedback] = useState<Record<number, boolean>>({});
   const [logId, setLogId] = useState<number | null>(null);
   const queryClient = useQueryClient();
   const navigate = useNavigate();
 
   // Timer principale
   const [showSkipConfirm, setShowSkipConfirm] = useState(false);
+  const [showNextWorkoutPicker, setShowNextWorkoutPicker] = useState(false);
+  const [selectedDayIndex, setSelectedDayIndex] = useState<number | null>(null);
   const [workoutStartTime] = useState<number>(Date.now());
   const [workoutElapsed, setWorkoutElapsed] = useState(0);
   const [workoutStarted, setWorkoutStarted] = useState(false);
@@ -95,6 +99,22 @@ export default function TodayWorkoutPage() {
       queryClient.invalidateQueries({ queryKey: ['events'] });
       setShowSkipConfirm(false);
       navigate('/');
+    },
+  });
+
+  const nextWorkoutMutation = useMutation({
+    mutationFn: (dayIndex: number) => workoutPlanApi.nextWorkoutToday(dayIndex),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['todayWorkout'] });
+      setCompletedSets({});
+      setFeedbacks({});
+      setEditingFeedback({});
+      setLogId(data.id);
+      setShowNextWorkoutPicker(false);
+      setSelectedDayIndex(null);
+    },
+    onError: (err) => {
+      console.error('nextWorkout error:', err);
     },
   });
 
@@ -148,7 +168,8 @@ export default function TodayWorkoutPage() {
   const isExerciseCompleted = (index: number) => {
     if (!todayWorkout) return false;
     const exercise = todayWorkout.exercises[index];
-    return (completedSets[index] || 0) >= exercise.sets;
+    if (exercise.muscleGroup === 'CARDIO' || exercise.cardioType) return completedSets[index] === 1;
+    return (completedSets[index] || 0) >= (exercise.sets ?? 0);
   };
 
   const completedExerciseCount = todayWorkout
@@ -156,7 +177,7 @@ export default function TodayWorkoutPage() {
     : 0;
 
   const totalSetsCount = todayWorkout
-    ? todayWorkout.exercises.reduce((sum, ex) => sum + ex.sets, 0)
+    ? todayWorkout.exercises.reduce((sum, ex) => sum + (ex.muscleGroup === 'CARDIO' ? 1 : (ex.sets ?? 0)), 0)
     : 0;
 
   const completedSetsCount = Object.values(completedSets).reduce((sum, v) => sum + v, 0);
@@ -171,7 +192,8 @@ export default function TodayWorkoutPage() {
     const exercise = todayWorkout.exercises[index];
     const current = completedSets[index] || 0;
 
-    if (current >= exercise.sets) return; // already all done
+    const maxSets = (exercise.muscleGroup === 'CARDIO' || exercise.cardioType) ? 1 : (exercise.sets ?? 0);
+    if (current >= maxSets) return; // already all done
 
     // Auto-start workout on first toggle if autoProgression is enabled
     if (todayWorkout.autoProgression && completedSetsCount === 0) {
@@ -182,7 +204,7 @@ export default function TodayWorkoutPage() {
     setCompletedSets((prev) => ({ ...prev, [index]: newCount }));
 
     // Start rest timer unless this was the last set of the last exercise
-    const isLastSetOfExercise = newCount >= exercise.sets;
+    const isLastSetOfExercise = newCount >= maxSets;
     const isLastExercise = completedExerciseCount === todayWorkout.exercises.length - 1 && isLastSetOfExercise;
 
     if (!isLastExercise) {
@@ -224,8 +246,10 @@ export default function TodayWorkoutPage() {
         repsCompleted: exercise.reps,
       });
       setFeedbacks((prev) => ({ ...prev, [index]: difficulty }));
+      setEditingFeedback((prev) => ({ ...prev, [index]: false }));
+      queryClient.invalidateQueries({ queryKey: ['todayWorkout'] });
     } catch {
-      // Feedback already submitted or error
+      // error
     }
   };
 
@@ -262,6 +286,7 @@ export default function TodayWorkoutPage() {
   }
 
   if (todayWorkout.alreadyCompletedToday) {
+    const availableDays = todayWorkout.availableWorkoutDays ?? [];
     return (
       <div className="pb-20 lg:pb-0">
         <div className="text-center py-12">
@@ -270,13 +295,71 @@ export default function TodayWorkoutPage() {
           <p className="text-gray-500 mb-4">
             Hai già completato l'allenamento di oggi. Ottimo lavoro!
           </p>
-          <button
-            onClick={() => navigate('/')}
-            className="btn btn-primary"
-          >
-            Torna alla Dashboard
-          </button>
+          <div className="flex flex-col gap-3 items-center">
+            <button
+              onClick={() => {
+                const nextIdx = availableDays.length > 0
+                  ? availableDays[(availableDays.findIndex(d => d.name === todayWorkout.workoutDayName) + 1) % availableDays.length].dayIndex
+                  : 0;
+                setSelectedDayIndex(nextIdx);
+                setShowNextWorkoutPicker(true);
+              }}
+              className="btn btn-primary flex items-center gap-2"
+            >
+              <Dumbbell size={18} />
+              Fai un altro allenamento
+            </button>
+            <button onClick={() => navigate('/')} className="btn btn-secondary">
+              Torna alla Dashboard
+            </button>
+          </div>
         </div>
+
+        {/* Day picker modal */}
+        {showNextWorkoutPicker && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-2xl w-full max-w-sm p-6">
+              <div className="text-center mb-5">
+                <Dumbbell size={32} className="mx-auto text-primary-500 mb-2" />
+                <h2 className="text-lg font-bold">Scegli l'allenamento</h2>
+                <p className="text-sm text-gray-500 mt-1">Quale giorno vuoi fare adesso?</p>
+              </div>
+
+              <div className="space-y-2 mb-6">
+                {availableDays.map((day: WorkoutDaySummary) => (
+                  <button
+                    key={day.dayIndex}
+                    onClick={() => setSelectedDayIndex(day.dayIndex)}
+                    className={`w-full text-left px-4 py-3 rounded-xl border transition-all ${
+                      selectedDayIndex === day.dayIndex
+                        ? 'border-primary-500 bg-primary-50 text-primary-700'
+                        : 'border-gray-200 bg-gray-50 hover:border-gray-300'
+                    }`}
+                  >
+                    <span className="font-medium">Giorno {day.dayNumber}</span>
+                    <span className="text-gray-500 ml-2">— {day.name}</span>
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowNextWorkoutPicker(false)}
+                  className="btn btn-secondary flex-1"
+                >
+                  Annulla
+                </button>
+                <button
+                  onClick={() => selectedDayIndex !== null && nextWorkoutMutation.mutate(selectedDayIndex)}
+                  disabled={selectedDayIndex === null || nextWorkoutMutation.isPending}
+                  className="btn btn-primary flex-1"
+                >
+                  {nextWorkoutMutation.isPending ? 'Caricamento...' : 'Inizia'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -340,7 +423,8 @@ export default function TodayWorkoutPage() {
       <div className="space-y-3 mb-6">
         {todayWorkout.exercises.map((exercise, index) => {
           const done = completedSets[index] || 0;
-          const total = exercise.sets;
+          const isCardio = exercise.muscleGroup === 'CARDIO' || !!exercise.cardioType;
+          const total = isCardio ? 1 : (exercise.sets ?? 0);
           const fullyDone = done >= total;
           const isCurrent = index === currentExerciseIndex;
           const isFuture = currentExerciseIndex !== -1 && index > currentExerciseIndex;
@@ -364,16 +448,46 @@ export default function TodayWorkoutPage() {
                   )}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <h3
-                    className={`font-medium truncate ${
-                      fullyDone ? 'line-through text-gray-500' : ''
-                    }`}
-                  >
-                    {exercise.name}
-                  </h3>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <h3
+                      className={`font-medium truncate ${
+                        fullyDone ? 'line-through text-gray-500' : ''
+                      }`}
+                    >
+                      {exercise.name}
+                    </h3>
+                    {(() => {
+                      const history = todayWorkout.exerciseFeedbackHistory?.[exercise.name];
+                      if (!history?.length) return null;
+                      return (
+                        <div className="flex gap-0.5 flex-shrink-0">
+                          {history.map((d, i) => (
+                            <span
+                              key={i}
+                              className={`inline-block w-2 h-2 rounded-full ${
+                                d === 'LIGHT' ? 'bg-green-400' :
+                                d === 'NEUTRAL' ? 'bg-yellow-400' :
+                                'bg-red-400'
+                              }`}
+                              title={d === 'LIGHT' ? 'Leggero' : d === 'NEUTRAL' ? 'Stimolante' : 'Pesante'}
+                            />
+                          ))}
+                        </div>
+                      );
+                    })()}
+                  </div>
                   <p className="text-sm text-gray-500 truncate">
-                    {exercise.sets} serie x {exercise.reps} ripetizioni
-                    {exercise.weight && ` • ${exercise.weight}kg`}
+                    {isCardio ? (
+                      <>
+                        {exercise.cardioType ? CARDIO_TYPE_LABELS[exercise.cardioType as CardioType] : 'Cardio'}
+                        {exercise.durationMinutes && ` • ${exercise.durationMinutes} min`}
+                      </>
+                    ) : (
+                      <>
+                        {exercise.sets} serie x {exercise.reps} ripetizioni
+                        {exercise.weight && ` • ${exercise.weight}kg`}
+                      </>
+                    )}
                   </p>
                   {exercise.notes && (
                     <p className="text-xs text-gray-400 mt-1 truncate">{exercise.notes}</p>
@@ -383,7 +497,21 @@ export default function TodayWorkoutPage() {
 
               {/* Set tracker */}
               <div className="flex items-center gap-1.5 sm:gap-2 mt-3 ml-9 flex-wrap">
-                {Array.from({ length: total }, (_, s) => {
+                {isCardio ? (
+                  <button
+                    disabled={isFuture || fullyDone}
+                    onClick={(e) => { e.stopPropagation(); if (!isFuture && !fullyDone) completeNextSet(index); }}
+                    className={`px-4 h-8 rounded-full text-xs font-bold transition-all ${
+                      fullyDone
+                        ? 'bg-green-500 text-white'
+                        : isFuture
+                          ? 'bg-gray-100 text-gray-400'
+                          : 'bg-orange-100 text-orange-700 ring-2 ring-orange-400 hover:bg-orange-200'
+                    }`}
+                  >
+                    {fullyDone ? 'Completato' : 'Segna completato'}
+                  </button>
+                ) : Array.from({ length: total }, (_, s) => {
                   const isNextSet = s === done;
                   const isSetDisabled = isFuture || (isNextSet && restTimeLeft !== null);
                   return (
@@ -394,10 +522,8 @@ export default function TodayWorkoutPage() {
                       e.stopPropagation();
                       if (isFuture) return;
                       if (s < done) {
-                        // Undo: clicking a completed set undoes from the last
                         if (isCurrent) undoSet(index);
                       } else if (isNextSet) {
-                        // Complete next set
                         completeNextSet(index);
                       }
                     }}
@@ -416,49 +542,53 @@ export default function TodayWorkoutPage() {
                   </button>
                   );
                 })}
-                <span className="text-xs text-gray-400 ml-1">
-                  {done}/{total}
-                </span>
-              </div>
-            </div>
-
-            {/* Feedback buttons - shown after completing exercise when autoProgression is on */}
-            {todayWorkout.autoProgression && fullyDone && (
-              <div className="mt-1 ml-9">
-                {feedbacks[index] ? (
-                  <p className="text-xs text-gray-500">
-                    Difficoltà: <span className={`font-medium ${
-                      feedbacks[index] === 'LIGHT' ? 'text-green-600' :
-                      feedbacks[index] === 'NEUTRAL' ? 'text-yellow-600' : 'text-red-600'
-                    }`}>
-                      {feedbacks[index] === 'LIGHT' ? 'Facile' :
-                       feedbacks[index] === 'NEUTRAL' ? 'Medio' : 'Difficile'}
-                    </span>
-                  </p>
-                ) : (
-                  <div className="flex gap-2">
-                    <button
-                      onClick={(e) => { e.stopPropagation(); handleFeedback(index, 'LIGHT'); }}
-                      className="px-3 py-1 text-xs font-medium rounded-full bg-green-100 text-green-700 hover:bg-green-200 transition-colors"
-                    >
-                      Facile
-                    </button>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); handleFeedback(index, 'NEUTRAL'); }}
-                      className="px-3 py-1 text-xs font-medium rounded-full bg-yellow-100 text-yellow-700 hover:bg-yellow-200 transition-colors"
-                    >
-                      Medio
-                    </button>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); handleFeedback(index, 'HEAVY'); }}
-                      className="px-3 py-1 text-xs font-medium rounded-full bg-red-100 text-red-700 hover:bg-red-200 transition-colors"
-                    >
-                      Difficile
-                    </button>
-                  </div>
+                {!isCardio && (
+                  <span className="text-xs text-gray-400 ml-1">
+                    {done}/{total}
+                  </span>
                 )}
               </div>
-            )}
+
+              {/* Feedback buttons - shown after first set */}
+              {done > 0 && (
+                <div className="mt-3 ml-9">
+                  {feedbacks[index] && !editingFeedback[index] ? (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setEditingFeedback((prev) => ({ ...prev, [index]: true })); }}
+                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-opacity hover:opacity-70 ${
+                        feedbacks[index] === 'LIGHT' ? 'bg-green-50 border-green-200 text-green-700' :
+                        feedbacks[index] === 'NEUTRAL' ? 'bg-yellow-50 border-yellow-200 text-yellow-700' :
+                        'bg-red-50 border-red-200 text-red-700'
+                      }`}
+                    >
+                      <span>{feedbacks[index] === 'LIGHT' ? '🟢' : feedbacks[index] === 'NEUTRAL' ? '🟡' : '🔴'}</span>
+                      {feedbacks[index] === 'LIGHT' ? 'Leggero' : feedbacks[index] === 'NEUTRAL' ? 'Stimolante' : 'Pesante'}
+                    </button>
+                  ) : (
+                    <div className="flex gap-2">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleFeedback(index, 'HEAVY'); }}
+                        className="flex-1 py-1.5 text-xs font-semibold rounded-lg border border-red-200 bg-red-50 text-red-700 hover:bg-red-100 transition-colors"
+                      >
+                        Pesante
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleFeedback(index, 'NEUTRAL'); }}
+                        className="flex-1 py-1.5 text-xs font-semibold rounded-lg border border-yellow-200 bg-yellow-50 text-yellow-700 hover:bg-yellow-100 transition-colors"
+                      >
+                        Stimolante
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleFeedback(index, 'LIGHT'); }}
+                        className="flex-1 py-1.5 text-xs font-semibold rounded-lg border border-green-200 bg-green-50 text-green-700 hover:bg-green-100 transition-colors"
+                      >
+                        Leggero
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
           );
         })}
@@ -515,7 +645,7 @@ export default function TodayWorkoutPage() {
       {/* Complete Button */}
       <button
         onClick={() => {
-          if (!todayWorkout.todayLogId) {
+          if (!logId && !todayWorkout.todayLogId) {
             startMutation.mutate();
           }
           setShowCompleteModal(true);
@@ -564,12 +694,13 @@ export default function TodayWorkoutPage() {
               </button>
               <button
                 onClick={async () => {
-                  let logId = todayWorkout.todayLogId;
-                  if (!logId) {
+                  const resolvedLogId = logId ?? todayWorkout.todayLogId;
+                  if (!resolvedLogId) {
                     const log = await workoutPlanApi.startTodayWorkout();
-                    logId = log.id;
+                    completeMutation.mutate({ logId: log.id, notes });
+                  } else {
+                    completeMutation.mutate({ logId: resolvedLogId, notes });
                   }
-                  completeMutation.mutate({ logId, notes });
                 }}
                 disabled={completeMutation.isPending}
                 className="btn btn-primary flex-1"

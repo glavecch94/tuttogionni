@@ -52,15 +52,18 @@ public class ExerciseTemplateService {
             throw new RuntimeException("An exercise with this name already exists");
         }
 
+        boolean isCardio = dto.getMuscleGroup() == com.tuttogionni.model.MuscleGroup.CARDIO;
         ExerciseTemplate template = ExerciseTemplate.builder()
                 .user(user)
                 .name(dto.getName())
                 .muscleGroup(dto.getMuscleGroup())
-                .defaultSets(dto.getDefaultSets() != null ? dto.getDefaultSets() : 3)
-                .minReps(dto.getMinReps() != null ? dto.getMinReps() : 8)
-                .maxReps(dto.getMaxReps() != null ? dto.getMaxReps() : 12)
-                .initialWeight(dto.getInitialWeight())
-                .useTwoDumbbells(dto.getUseTwoDumbbells() != null ? dto.getUseTwoDumbbells() : false)
+                .defaultSets(isCardio ? null : (dto.getDefaultSets() != null ? dto.getDefaultSets() : 3))
+                .minReps(isCardio ? null : (dto.getMinReps() != null ? dto.getMinReps() : 8))
+                .maxReps(isCardio ? null : (dto.getMaxReps() != null ? dto.getMaxReps() : 12))
+                .initialWeight(isCardio ? null : dto.getInitialWeight())
+                .useTwoDumbbells(isCardio ? null : (dto.getUseTwoDumbbells() != null ? dto.getUseTwoDumbbells() : false))
+                .cardioType(isCardio ? dto.getCardioType() : null)
+                .defaultDurationMinutes(isCardio ? dto.getDefaultDurationMinutes() : null)
                 .notes(dto.getNotes())
                 .build();
 
@@ -78,13 +81,16 @@ public class ExerciseTemplateService {
             throw new RuntimeException("An exercise with this name already exists");
         }
 
+        boolean isCardio = dto.getMuscleGroup() == com.tuttogionni.model.MuscleGroup.CARDIO;
         template.setName(dto.getName());
         template.setMuscleGroup(dto.getMuscleGroup());
-        template.setDefaultSets(dto.getDefaultSets());
-        template.setMinReps(dto.getMinReps());
-        template.setMaxReps(dto.getMaxReps());
-        template.setInitialWeight(dto.getInitialWeight());
-        template.setUseTwoDumbbells(dto.getUseTwoDumbbells());
+        template.setDefaultSets(isCardio ? null : dto.getDefaultSets());
+        template.setMinReps(isCardio ? null : dto.getMinReps());
+        template.setMaxReps(isCardio ? null : dto.getMaxReps());
+        template.setInitialWeight(isCardio ? null : dto.getInitialWeight());
+        template.setUseTwoDumbbells(isCardio ? null : dto.getUseTwoDumbbells());
+        template.setCardioType(isCardio ? dto.getCardioType() : null);
+        template.setDefaultDurationMinutes(isCardio ? dto.getDefaultDurationMinutes() : null);
         template.setNotes(dto.getNotes());
 
         return toDTO(exerciseTemplateRepository.save(template));
@@ -107,6 +113,8 @@ public class ExerciseTemplateService {
                 .maxReps(template.getMaxReps())
                 .initialWeight(template.getInitialWeight())
                 .useTwoDumbbells(template.getUseTwoDumbbells())
+                .cardioType(template.getCardioType())
+                .defaultDurationMinutes(template.getDefaultDurationMinutes())
                 .notes(template.getNotes())
                 .build();
     }

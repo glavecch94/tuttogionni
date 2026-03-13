@@ -37,14 +37,20 @@ public class ExerciseTemplate {
     @JdbcTypeCode(SqlTypes.NAMED_ENUM)
     private MuscleGroup muscleGroup;
 
-    @Column(name = "default_sets", nullable = false)
+    @Column(name = "default_sets")
     private Integer defaultSets;
 
-    @Column(name = "min_reps", nullable = false)
+    @Column(name = "min_reps")
     private Integer minReps;
 
-    @Column(name = "max_reps", nullable = false)
+    @Column(name = "max_reps")
     private Integer maxReps;
+
+    @Column(name = "cardio_type")
+    private String cardioType;
+
+    @Column(name = "default_duration_minutes")
+    private Integer defaultDurationMinutes;
 
     @Column(name = "initial_weight")
     private BigDecimal initialWeight;

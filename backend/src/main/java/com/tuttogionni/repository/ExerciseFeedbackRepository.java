@@ -11,7 +11,7 @@ import java.util.List;
 @Repository
 public interface ExerciseFeedbackRepository extends JpaRepository<ExerciseFeedback, Long> {
 
-    @Query("SELECT ef FROM ExerciseFeedback ef WHERE ef.user.id = :userId AND ef.workoutPlan.id = :planId AND ef.exerciseName = :exerciseName ORDER BY ef.createdAt DESC")
+    @Query("SELECT ef FROM ExerciseFeedback ef WHERE ef.user.id = :userId AND ef.workoutPlan.id = :planId AND ef.exerciseName = :exerciseName AND ef.workoutLog.completed = true ORDER BY ef.createdAt DESC")
     List<ExerciseFeedback> findRecentByUserAndPlanAndExercise(
             @Param("userId") Long userId,
             @Param("planId") Long planId,
@@ -19,5 +19,14 @@ public interface ExerciseFeedbackRepository extends JpaRepository<ExerciseFeedba
 
     List<ExerciseFeedback> findByWorkoutLogId(Long workoutLogId);
 
+    @org.springframework.data.jpa.repository.Modifying
+    @Query("DELETE FROM ExerciseFeedback ef WHERE ef.user.id = :userId AND ef.workoutPlan.id = :planId AND ef.exerciseName = :exerciseName")
+    void deleteByUserIdAndPlanIdAndExerciseName(
+            @Param("userId") Long userId,
+            @Param("planId") Long planId,
+            @Param("exerciseName") String exerciseName);
+
     boolean existsByWorkoutLogIdAndExerciseName(Long workoutLogId, String exerciseName);
+
+    java.util.Optional<ExerciseFeedback> findByWorkoutLogIdAndExerciseName(Long workoutLogId, String exerciseName);
 }

@@ -115,6 +115,14 @@ public class WorkoutPlanController {
         return ResponseEntity.ok(today);
     }
 
+    @PostMapping("/today/next")
+    @Operation(summary = "Advance to a chosen workout day to do another workout today")
+    public ResponseEntity<WorkoutLogDTO> startNextWorkoutToday(
+            @RequestParam(required = false) Integer dayIndex,
+            @AuthenticationPrincipal User user) {
+        return ResponseEntity.ok(workoutPlanService.startNextWorkoutToday(user, dayIndex));
+    }
+
     @PostMapping("/today/skip")
     @Operation(summary = "Skip today's workout and advance the cycle")
     public ResponseEntity<Void> skipTodayWorkout(@AuthenticationPrincipal User user) {

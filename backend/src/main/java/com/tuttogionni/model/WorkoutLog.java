@@ -26,12 +26,21 @@ public class WorkoutLog {
     private User user;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "workout_plan_id", nullable = false)
+    @JoinColumn(name = "workout_plan_id")
     private WorkoutPlan workoutPlan;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "workout_day_id", nullable = false)
+    @JoinColumn(name = "workout_day_id")
     private WorkoutDay workoutDay;
+
+    @Column(name = "workout_plan_name")
+    private String workoutPlanName;
+
+    @Column(name = "workout_day_name")
+    private String workoutDayName;
+
+    @Column(name = "workout_day_number")
+    private Integer workoutDayNumber;
 
     @Column(nullable = false)
     private LocalDate date;

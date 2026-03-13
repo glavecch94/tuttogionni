@@ -248,6 +248,12 @@ export const workoutPlanApi = {
   submitFeedback: async (feedback: ExerciseFeedback): Promise<void> => {
     await api.post('/workout-plans/feedback', feedback);
   },
+  nextWorkoutToday: async (dayIndex?: number): Promise<WorkoutLog> => {
+    const response = await api.post<WorkoutLog>('/workout-plans/today/next', null, {
+      params: dayIndex !== undefined ? { dayIndex } : {},
+    });
+    return response.data;
+  },
   skipTodayWorkout: async (): Promise<void> => {
     await api.post('/workout-plans/today/skip');
   },

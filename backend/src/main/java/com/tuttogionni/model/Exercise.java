@@ -6,6 +6,8 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.math.BigDecimal;
+
 @Data
 @Builder
 @NoArgsConstructor
@@ -53,11 +55,21 @@ public class Exercise {
     @Column(nullable = false)
     private String name;
 
-    @Column(nullable = false)
+    @Column(name = "muscle_group")
+    private String muscleGroup;
+
     private Integer sets;
 
-    @Column(nullable = false)
     private Integer reps;
+
+    @Column(name = "cardio_type")
+    private String cardioType;
+
+    @Column(name = "duration_minutes")
+    private Integer durationMinutes;
+
+    @Column(name = "distance_km")
+    private BigDecimal distanceKm;
 
     private Double weight;
 
@@ -77,4 +89,7 @@ public class Exercise {
 
     @Column(name = "max_reps")
     private Integer maxReps;
+
+    @Column(name = "weight_increment")
+    private Double weightIncrement;
 }

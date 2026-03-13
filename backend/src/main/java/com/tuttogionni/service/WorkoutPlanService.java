@@ -20,6 +20,7 @@ public class WorkoutPlanService {
     private final WorkoutLogRepository workoutLogRepository;
     private final EventRepository eventRepository;
     private final ExerciseTemplateRepository exerciseTemplateRepository;
+    private final ExerciseFeedbackRepository exerciseFeedbackRepository;
     private final ProgressionService progressionService;
 
     public List<WorkoutPlanDTO> getAllPlans(User user) {
@@ -90,13 +91,18 @@ public class WorkoutPlanService {
         Exercise.ExerciseBuilder builder = Exercise.builder()
                 .workoutDay(day)
                 .name(exDTO.getName())
+                .muscleGroup(exDTO.getMuscleGroup() != null ? exDTO.getMuscleGroup().name() : null)
                 .sets(exDTO.getSets())
                 .reps(exDTO.getReps())
                 .weight(exDTO.getWeight())
+                .weightIncrement(exDTO.getWeightIncrement())
                 .useTwoDumbbells(exDTO.getUseTwoDumbbells())
                 .restSeconds(exDTO.getRestSeconds())
                 .notes(exDTO.getNotes())
-                .exerciseOrder(order);
+                .exerciseOrder(order)
+                .cardioType(exDTO.getCardioType())
+                .durationMinutes(exDTO.getDurationMinutes())
+                .distanceKm(exDTO.getDistanceKm());
 
         // Link to exercise template if provided
         ExerciseTemplate template = null;
@@ -258,8 +264,8 @@ public class WorkoutPlanService {
         // If there's a completed log for today whose workoutDay matches
         // the newly generated event for today, mark that event as completed too.
         LocalDate today = LocalDate.now();
-        workoutLogRepository.findByUserIdAndWorkoutPlanIdAndDate(user.getId(), savedPlan.getId(), today)
-                .filter(WorkoutLog::getCompleted)
+        workoutLogRepository.findByUserIdAndWorkoutPlanIdAndDateOrderByCreatedAtDesc(user.getId(), savedPlan.getId(), today)
+                .stream().filter(WorkoutLog::getCompleted).findFirst()
                 .ifPresent(log -> {
                     eventRepository.findByWorkoutPlanIdAndUserId(savedPlan.getId(), user.getId())
                             .stream()
@@ -452,13 +458,12 @@ public class WorkoutPlanService {
         }
         WorkoutDay currentDay = sortedDays.get(currentIndex);
 
-        // Auto-advance: if the current day was completed on a PREVIOUS date,
-        // advance to the next day in the cycle.
-        // (currentDayIndex is no longer advanced in completeWorkout)
-        Optional<WorkoutLog> todayLog = workoutLogRepository.findByUserIdAndWorkoutPlanIdAndDate(
+        // All logs for today for this plan (multiple if user did extra workouts)
+        List<WorkoutLog> todayLogs = workoutLogRepository.findByUserIdAndWorkoutPlanIdAndDateOrderByCreatedAtDesc(
                 user.getId(), activePlan.getId(), today);
 
-        if (todayLog.isEmpty()) {
+        // Auto-advance: if there are no logs today but last log (previous day) was for currentDay → advance
+        if (todayLogs.isEmpty()) {
             List<WorkoutLog> recentLogs = workoutLogRepository.findByUserIdAndPlanIdOrderByDateDesc(
                     user.getId(), activePlan.getId());
             if (!recentLogs.isEmpty()) {
@@ -474,29 +479,67 @@ public class WorkoutPlanService {
             }
         }
 
-        // Simple check: completed today if log exists, is completed,
-        // and matches the current workout day (same plan + same day = completed)
-        boolean completedToday = todayLog.isPresent()
-                && todayLog.get().getCompleted()
-                && todayLog.get().getWorkoutDay().getId().equals(currentDay.getId());
+        // Capture as final for use in lambdas
+        final WorkoutDay finalCurrentDay = currentDay;
+
+        // Active (non-completed) log for today for this day
+        Optional<WorkoutLog> activeLog = todayLogs.stream()
+                .filter(l -> !l.getCompleted() && l.getWorkoutDay().getId().equals(finalCurrentDay.getId()))
+                .findFirst();
+
+        // Completed today only if there's no active log but there is a completed one
+        boolean completedToday = activeLog.isEmpty() && todayLogs.stream()
+                .anyMatch(l -> l.getCompleted() && l.getWorkoutDay().getId().equals(finalCurrentDay.getId()));
+
+        // todayLogId: prefer active log, fallback to most recent completed
+        Optional<WorkoutLog> latestTodayLog = activeLog.isPresent() ? activeLog
+                : todayLogs.stream().filter(l -> l.getWorkoutDay().getId().equals(finalCurrentDay.getId())).findFirst();
 
         // Sort exercises by order
-        List<ExerciseDTO> sortedExercises = currentDay.getExercises().stream()
+        List<ExerciseDTO> sortedExercises = finalCurrentDay.getExercises().stream()
                 .sorted(Comparator.comparing(Exercise::getExerciseOrder))
                 .map(this::toExerciseDTO)
                 .toList();
 
+        List<TodayWorkoutDTO.WorkoutDaySummaryDTO> availableDays = new ArrayList<>();
+        for (int i = 0; i < sortedDays.size(); i++) {
+            WorkoutDay d = sortedDays.get(i);
+            availableDays.add(TodayWorkoutDTO.WorkoutDaySummaryDTO.builder()
+                    .dayIndex(i)
+                    .dayNumber(d.getDayNumber())
+                    .name(d.getName())
+                    .build());
+        }
+
+        // Build feedback history: last 5 feedbacks per exercise (oldest → newest)
+        Map<String, List<String>> feedbackHistory = new HashMap<>();
+        for (ExerciseDTO ex : sortedExercises) {
+            List<String> history = exerciseFeedbackRepository
+                    .findRecentByUserAndPlanAndExercise(user.getId(), activePlan.getId(), ex.getName())
+                    .stream()
+                    .limit(5)
+                    .map(f -> f.getDifficulty().name())
+                    .collect(java.util.stream.Collectors.collectingAndThen(
+                            java.util.stream.Collectors.toList(),
+                            list -> { java.util.Collections.reverse(list); return list; }));
+            if (!history.isEmpty()) {
+                feedbackHistory.put(ex.getName(), history);
+            }
+        }
+
         return TodayWorkoutDTO.builder()
                 .workoutPlanId(activePlan.getId())
                 .workoutPlanName(activePlan.getName())
-                .workoutDayId(currentDay.getId())
-                .workoutDayNumber(currentDay.getDayNumber())
-                .workoutDayName(currentDay.getName())
-                .workoutDayDescription(currentDay.getDescription())
+                .workoutDayId(finalCurrentDay.getId())
+                .workoutDayNumber(finalCurrentDay.getDayNumber())
+                .workoutDayName(finalCurrentDay.getName())
+                .workoutDayDescription(finalCurrentDay.getDescription())
                 .exercises(sortedExercises)
                 .alreadyCompletedToday(completedToday)
-                .todayLogId(todayLog.map(WorkoutLog::getId).orElse(null))
+                .todayLogId(latestTodayLog.map(WorkoutLog::getId).orElse(null))
                 .autoProgression(activePlan.getAutoProgression())
+                .availableWorkoutDays(availableDays)
+                .exerciseFeedbackHistory(feedbackHistory)
                 .build();
     }
 
@@ -523,12 +566,14 @@ public class WorkoutPlanService {
 
         WorkoutDay currentDay = sortedDays.get(currentIndex);
 
-        // Check if already started today for the SAME workout day
-        Optional<WorkoutLog> existingLog = workoutLogRepository.findByUserIdAndWorkoutPlanIdAndDate(
+        // Reuse an existing non-completed log for today for the same workout day
+        List<WorkoutLog> todayLogs = workoutLogRepository.findByUserIdAndWorkoutPlanIdAndDateOrderByCreatedAtDesc(
                 user.getId(), activePlan.getId(), today);
+        Optional<WorkoutLog> existingLog = todayLogs.stream()
+                .filter(l -> !l.getCompleted() && l.getWorkoutDay().getId().equals(currentDay.getId()))
+                .findFirst();
 
-        if (existingLog.isPresent()
-                && existingLog.get().getWorkoutDay().getId().equals(currentDay.getId())) {
+        if (existingLog.isPresent()) {
             return toLogDTO(existingLog.get());
         }
 
@@ -536,6 +581,9 @@ public class WorkoutPlanService {
                 .user(user)
                 .workoutPlan(activePlan)
                 .workoutDay(currentDay)
+                .workoutPlanName(activePlan.getName())
+                .workoutDayName(currentDay.getName())
+                .workoutDayNumber(currentDay.getDayNumber())
                 .date(today)
                 .completed(false)
                 .build();
@@ -550,6 +598,11 @@ public class WorkoutPlanService {
 
         if (!log.getUser().getId().equals(user.getId())) {
             throw new RuntimeException("Unauthorized access to workout log");
+        }
+
+        // Idempotency: if already completed, skip progression and event updates
+        if (log.getCompleted()) {
+            return toLogDTO(log);
         }
 
         log.setCompleted(true);
@@ -585,6 +638,50 @@ public class WorkoutPlanService {
         generateWorkoutEvents(plan, user, true, log.getDate().plusDays(1), nextIndex);
 
         return toLogDTO(workoutLogRepository.save(log));
+    }
+
+    @Transactional
+    public WorkoutLogDTO startNextWorkoutToday(User user, Integer dayIndex) {
+        WorkoutPlan plan = workoutPlanRepository.findActiveByUserIdWithDaysAndExercises(user.getId())
+                .orElseThrow(() -> new RuntimeException("No active workout plan"));
+
+        List<WorkoutDay> sortedDays = plan.getWorkoutDays().stream()
+                .sorted(Comparator.comparing(WorkoutDay::getDayNumber))
+                .toList();
+
+        if (sortedDays.isEmpty()) {
+            throw new RuntimeException("Workout plan has no days");
+        }
+
+        int nextIndex = (dayIndex != null)
+                ? Math.floorMod(dayIndex, sortedDays.size())
+                : (plan.getCurrentDayIndex() + 1) % sortedDays.size();
+        plan.setCurrentDayIndex(nextIndex);
+        workoutPlanRepository.save(plan);
+
+        // Pre-create a non-completed log for the chosen day so getTodayWorkout
+        // returns alreadyCompletedToday=false even if the same day was already done today.
+        WorkoutDay chosenDay = sortedDays.get(nextIndex);
+        LocalDate today = LocalDate.now();
+        List<WorkoutLog> todayLogs = workoutLogRepository
+                .findByUserIdAndWorkoutPlanIdAndDateOrderByCreatedAtDesc(user.getId(), plan.getId(), today);
+        Optional<WorkoutLog> existingActive = todayLogs.stream()
+                .filter(l -> !l.getCompleted() && l.getWorkoutDay().getId().equals(chosenDay.getId()))
+                .findFirst();
+        if (existingActive.isPresent()) {
+            return toLogDTO(existingActive.get());
+        }
+        WorkoutLog newLog = WorkoutLog.builder()
+                .user(user)
+                .workoutPlan(plan)
+                .workoutDay(chosenDay)
+                .workoutPlanName(plan.getName())
+                .workoutDayName(chosenDay.getName())
+                .workoutDayNumber(chosenDay.getDayNumber())
+                .date(today)
+                .completed(false)
+                .build();
+        return toLogDTO(workoutLogRepository.save(newLog));
     }
 
     @Transactional
@@ -682,9 +779,11 @@ public class WorkoutPlanService {
                 Exercise clonedExercise = Exercise.builder()
                         .workoutDay(clonedDay)
                         .name(originalExercise.getName())
+                        .muscleGroup(originalExercise.getMuscleGroup())
                         .sets(originalExercise.getSets())
                         .reps(originalExercise.getReps())
                         .weight(originalExercise.getWeight())
+                        .weightIncrement(originalExercise.getWeightIncrement())
                         .useTwoDumbbells(originalExercise.getUseTwoDumbbells())
                         .restSeconds(originalExercise.getRestSeconds())
                         .notes(originalExercise.getNotes())
@@ -692,6 +791,9 @@ public class WorkoutPlanService {
                         .exerciseTemplate(originalExercise.getExerciseTemplate())
                         .minReps(originalExercise.getMinReps())
                         .maxReps(originalExercise.getMaxReps())
+                        .cardioType(originalExercise.getCardioType())
+                        .durationMinutes(originalExercise.getDurationMinutes())
+                        .distanceKm(originalExercise.getDistanceKm())
                         .build();
                 clonedDay.getExercises().add(clonedExercise);
             }
@@ -794,18 +896,33 @@ public class WorkoutPlanService {
                 .sets(exercise.getSets())
                 .reps(exercise.getReps())
                 .weight(exercise.getWeight())
+                .weightIncrement(exercise.getWeightIncrement())
                 .useTwoDumbbells(exercise.getUseTwoDumbbells())
                 .restSeconds(exercise.getRestSeconds())
                 .notes(exercise.getNotes())
-                .exerciseOrder(exercise.getExerciseOrder());
+                .exerciseOrder(exercise.getExerciseOrder())
+                .cardioType(exercise.getCardioType())
+                .durationMinutes(exercise.getDurationMinutes())
+                .distanceKm(exercise.getDistanceKm());
 
         // Prioritize exercise's own minReps/maxReps, fallback to template
         Integer minReps = exercise.getMinReps();
         Integer maxReps = exercise.getMaxReps();
 
+        // MuscleGroup: exercise's own field first, fallback to template
+        MuscleGroup muscleGroup = null;
+        if (exercise.getMuscleGroup() != null) {
+            try {
+                muscleGroup = MuscleGroup.valueOf(exercise.getMuscleGroup());
+            } catch (IllegalArgumentException ignored) {
+            }
+        }
+
         if (exercise.getExerciseTemplate() != null) {
-            builder.exerciseTemplateId(exercise.getExerciseTemplate().getId())
-                    .muscleGroup(exercise.getExerciseTemplate().getMuscleGroup());
+            builder.exerciseTemplateId(exercise.getExerciseTemplate().getId());
+            if (muscleGroup == null) {
+                muscleGroup = exercise.getExerciseTemplate().getMuscleGroup();
+            }
             if (minReps == null) {
                 minReps = exercise.getExerciseTemplate().getMinReps();
             }
@@ -813,6 +930,8 @@ public class WorkoutPlanService {
                 maxReps = exercise.getExerciseTemplate().getMaxReps();
             }
         }
+
+        builder.muscleGroup(muscleGroup);
 
         builder.minReps(minReps);
         builder.maxReps(maxReps);
@@ -823,11 +942,11 @@ public class WorkoutPlanService {
     private WorkoutLogDTO toLogDTO(WorkoutLog log) {
         return WorkoutLogDTO.builder()
                 .id(log.getId())
-                .workoutPlanId(log.getWorkoutPlan().getId())
-                .workoutPlanName(log.getWorkoutPlan().getName())
-                .workoutDayId(log.getWorkoutDay().getId())
-                .workoutDayName(log.getWorkoutDay().getName())
-                .workoutDayNumber(log.getWorkoutDay().getDayNumber())
+                .workoutPlanId(log.getWorkoutPlan() != null ? log.getWorkoutPlan().getId() : null)
+                .workoutPlanName(log.getWorkoutPlan() != null ? log.getWorkoutPlan().getName() : log.getWorkoutPlanName())
+                .workoutDayId(log.getWorkoutDay() != null ? log.getWorkoutDay().getId() : null)
+                .workoutDayName(log.getWorkoutDay() != null ? log.getWorkoutDay().getName() : log.getWorkoutDayName())
+                .workoutDayNumber(log.getWorkoutDay() != null ? log.getWorkoutDay().getDayNumber() : log.getWorkoutDayNumber())
                 .date(log.getDate())
                 .completed(log.getCompleted())
                 .notes(log.getNotes())

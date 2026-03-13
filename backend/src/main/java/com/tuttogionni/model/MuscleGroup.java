@@ -7,5 +7,6 @@ public enum MuscleGroup {
     TRICIPITI,
     DORSALI,
     GAMBE,
-    CORE
+    CORE,
+    CARDIO
 }

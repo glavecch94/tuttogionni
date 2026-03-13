@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, Trash2, Play, Pause, ChevronRight, Dumbbell, Calendar } from 'lucide-react';
 import { workoutPlanApi } from '../services/api';
-import type { WorkoutPlan, WorkoutDay, Exercise } from '../types';
+import type { CardioType, WorkoutPlan, WorkoutDay, Exercise } from '../types';
+import { CARDIO_TYPE_LABELS } from '../types';
 
 const DAYS_OF_WEEK = [
   { key: 'MONDAY', label: 'L', fullLabel: 'Lunedì' },
@@ -291,13 +292,13 @@ function PlanForm({
     setFormData({ ...formData, workoutDays: newDays });
   };
 
-  const addExercise = (dayIndex: number) => {
+  const addExercise = (dayIndex: number, cardio = false) => {
     const newDays = [...formData.workoutDays];
-    newDays[dayIndex].exercises.push({
-      name: '',
-      sets: 3,
-      reps: 10,
-    });
+    newDays[dayIndex].exercises.push(
+      cardio
+        ? { name: '', muscleGroup: 'CARDIO', durationMinutes: 30 }
+        : { name: '', sets: 3, reps: 10 }
+    );
     setFormData({ ...formData, workoutDays: newDays });
   };
 
@@ -461,49 +462,92 @@ function PlanForm({
 
                   {/* Exercises */}
                   <div className="space-y-2 ml-4">
-                    {day.exercises.map((exercise, exIndex) => (
-                      <div key={exIndex} className="flex items-center gap-2 bg-white p-2 rounded-lg">
-                        <input
-                          type="text"
-                          value={exercise.name}
-                          onChange={(e) => updateExercise(dayIndex, exIndex, { ...exercise, name: e.target.value })}
-                          className="input flex-1 text-sm"
-                          placeholder="Esercizio"
-                          required
-                        />
-                        <input
-                          type="number"
-                          value={exercise.sets}
-                          onChange={(e) => updateExercise(dayIndex, exIndex, { ...exercise, sets: parseInt(e.target.value) || 1 })}
-                          className="input w-16 text-sm text-center"
-                          min="1"
-                          title="Serie"
-                        />
-                        <span className="text-gray-400">x</span>
-                        <input
-                          type="number"
-                          value={exercise.reps}
-                          onChange={(e) => updateExercise(dayIndex, exIndex, { ...exercise, reps: parseInt(e.target.value) || 1 })}
-                          className="input w-16 text-sm text-center"
-                          min="1"
-                          title="Ripetizioni"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => removeExercise(dayIndex, exIndex)}
-                          className="p-1 text-red-400 hover:text-red-600"
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      </div>
-                    ))}
-                    <button
-                      type="button"
-                      onClick={() => addExercise(dayIndex)}
-                      className="text-sm text-primary-600 hover:text-primary-700 flex items-center gap-1"
-                    >
-                      <Plus size={14} /> Aggiungi Esercizio
-                    </button>
+                    {day.exercises.map((exercise, exIndex) => {
+                      const isCardio = exercise.muscleGroup === 'CARDIO' || !!exercise.cardioType;
+                      return (
+                        <div key={exIndex} className="bg-white p-2 rounded-lg space-y-1">
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="text"
+                              value={exercise.name}
+                              onChange={(e) => updateExercise(dayIndex, exIndex, { ...exercise, name: e.target.value })}
+                              className="input flex-1 text-sm"
+                              placeholder={isCardio ? 'es. Sessione mattutina' : 'Esercizio'}
+                              required
+                            />
+                            <button
+                              type="button"
+                              onClick={() => removeExercise(dayIndex, exIndex)}
+                              className="p-1 text-red-400 hover:text-red-600"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </div>
+                          {isCardio ? (
+                            <div className="flex items-center gap-2">
+                              <select
+                                value={exercise.cardioType || ''}
+                                onChange={(e) => updateExercise(dayIndex, exIndex, { ...exercise, cardioType: e.target.value as CardioType || undefined })}
+                                className="input flex-1 text-sm"
+                              >
+                                <option value="">Tipo cardio</option>
+                                {(Object.keys(CARDIO_TYPE_LABELS) as CardioType[]).map((key) => (
+                                  <option key={key} value={key}>{CARDIO_TYPE_LABELS[key]}</option>
+                                ))}
+                              </select>
+                              <input
+                                type="number"
+                                value={exercise.durationMinutes || ''}
+                                onChange={(e) => updateExercise(dayIndex, exIndex, { ...exercise, durationMinutes: parseInt(e.target.value) || undefined })}
+                                className="input w-20 text-sm text-center"
+                                min="1"
+                                placeholder="min"
+                                title="Durata in minuti"
+                              />
+                              <span className="text-xs text-gray-400 whitespace-nowrap">min</span>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="number"
+                                value={exercise.sets ?? ''}
+                                onChange={(e) => updateExercise(dayIndex, exIndex, { ...exercise, sets: parseInt(e.target.value) || 1 })}
+                                className="input w-16 text-sm text-center"
+                                min="1"
+                                placeholder="serie"
+                                title="Serie"
+                              />
+                              <span className="text-gray-400">x</span>
+                              <input
+                                type="number"
+                                value={exercise.reps ?? ''}
+                                onChange={(e) => updateExercise(dayIndex, exIndex, { ...exercise, reps: parseInt(e.target.value) || 1 })}
+                                className="input w-16 text-sm text-center"
+                                min="1"
+                                placeholder="rep"
+                                title="Ripetizioni"
+                              />
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => addExercise(dayIndex)}
+                        className="text-sm text-primary-600 hover:text-primary-700 flex items-center gap-1"
+                      >
+                        <Plus size={14} /> Esercizio
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => addExercise(dayIndex, true)}
+                        className="text-sm text-orange-500 hover:text-orange-600 flex items-center gap-1"
+                      >
+                        <Plus size={14} /> Cardio
+                      </button>
+                    </div>
                   </div>
                 </div>
               ))}
@@ -673,11 +717,20 @@ function PlanView({
                     <div key={exercise.id || exIndex} className="flex items-center gap-2 text-sm">
                       <span className="text-gray-400">{exIndex + 1}.</span>
                       <span className="flex-1">{exercise.name}</span>
-                      <span className="text-primary-600 font-medium">
-                        {exercise.sets}x{exercise.reps}
-                      </span>
-                      {exercise.weight && (
-                        <span className="text-gray-500">{exercise.weight}kg</span>
+                      {(exercise.muscleGroup === 'CARDIO' || !!exercise.cardioType) ? (
+                        <span className="text-orange-500 font-medium">
+                          {exercise.cardioType ? CARDIO_TYPE_LABELS[exercise.cardioType] : ''}
+                          {exercise.durationMinutes ? ` ${exercise.durationMinutes} min` : ''}
+                        </span>
+                      ) : (
+                        <>
+                          <span className="text-primary-600 font-medium">
+                            {exercise.sets}x{exercise.reps}
+                          </span>
+                          {exercise.weight && (
+                            <span className="text-gray-500">{exercise.weight}kg</span>
+                          )}
+                        </>
                       )}
                     </div>
                   ))}

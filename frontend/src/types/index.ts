@@ -116,19 +116,35 @@ export interface Goal {
 }
 
 // Muscle Groups
-export type MuscleGroup = 'PETTO' | 'SPALLE' | 'BICIPITI' | 'TRICIPITI' | 'DORSALI' | 'GAMBE' | 'CORE';
+export type MuscleGroup = 'PETTO' | 'SPALLE' | 'BICIPITI' | 'TRICIPITI' | 'DORSALI' | 'GAMBE' | 'CORE' | 'CARDIO';
+
+export type CardioType = 'CORSA' | 'BICI' | 'NUOTO' | 'ELLITTICA' | 'CAMMINATA' | 'CORDA' | 'VOGATORE' | 'HIIT' | 'PERSONALIZZATO';
+
+export const CARDIO_TYPE_LABELS: Record<CardioType, string> = {
+  CORSA: 'Corsa',
+  BICI: 'Bicicletta',
+  NUOTO: 'Nuoto',
+  ELLITTICA: 'Ellittica',
+  CAMMINATA: 'Camminata',
+  CORDA: 'Corda',
+  VOGATORE: 'Vogatore',
+  HIIT: 'HIIT',
+  PERSONALIZZATO: 'Personalizzato',
+};
 
 // Exercise Template (Library)
 export interface ExerciseTemplate {
   id?: number;
   name: string;
   muscleGroup: MuscleGroup;
-  defaultSets: number;
-  minReps: number;
-  maxReps: number;
+  defaultSets?: number;
+  minReps?: number;
+  maxReps?: number;
   initialWeight?: number;
   useTwoDumbbells?: boolean;
   notes?: string;
+  cardioType?: CardioType;
+  defaultDurationMinutes?: number;
 }
 
 // Exercise Feedback / Progression
@@ -150,8 +166,8 @@ export interface Exercise {
   exerciseTemplateId?: number;
   name: string;
   muscleGroup?: MuscleGroup;
-  sets: number;
-  reps: number;
+  sets?: number;
+  reps?: number;
   minReps?: number;
   maxReps?: number;
   weight?: number;
@@ -159,6 +175,10 @@ export interface Exercise {
   restSeconds?: number;
   notes?: string;
   exerciseOrder?: number;
+  weightIncrement?: number;
+  cardioType?: CardioType;
+  durationMinutes?: number;
+  distanceKm?: number;
 }
 
 export interface WorkoutDay {
@@ -194,6 +214,12 @@ export interface WorkoutLog {
   notes?: string;
 }
 
+export interface WorkoutDaySummary {
+  dayIndex: number;
+  dayNumber: number;
+  name: string;
+}
+
 export interface TodayWorkout {
   workoutPlanId: number;
   workoutPlanName: string;
@@ -205,6 +231,8 @@ export interface TodayWorkout {
   alreadyCompletedToday: boolean;
   todayLogId?: number;
   autoProgression?: boolean;
+  availableWorkoutDays?: WorkoutDaySummary[];
+  exerciseFeedbackHistory?: Record<string, Difficulty[]>;
 }
 
 export interface UpdatePreviewResponse {

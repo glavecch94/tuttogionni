@@ -290,6 +290,11 @@ export default function WorkoutStatsPage() {
                         </div>
                         <p className="text-sm text-gray-500">
                           {plan.workoutsPerWeek}x settimana • {plan.workoutDays?.length || 0} giorni
+                          {plan.autoProgression && (
+                            <span className="ml-2 text-xs px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded-full">
+                              auto↑
+                            </span>
+                          )}
                         </p>
                         {plan.trainingDays && plan.trainingDays.length > 0 && (
                           <div className="flex gap-1 mt-1">
@@ -599,7 +604,14 @@ function PlanForm({
 
   const addExerciseFromTemplate = (dayIndex: number, template: ExerciseTemplate) => {
     const newDays = [...formData.workoutDays];
-    newDays[dayIndex].exercises.push({
+    const isCardio = template.muscleGroup === 'CARDIO';
+    newDays[dayIndex].exercises.push(isCardio ? {
+      exerciseTemplateId: template.id,
+      name: template.name,
+      muscleGroup: template.muscleGroup,
+      cardioType: template.cardioType,
+      durationMinutes: template.defaultDurationMinutes,
+    } : {
       exerciseTemplateId: template.id,
       name: template.name,
       muscleGroup: template.muscleGroup,
@@ -657,6 +669,19 @@ function PlanForm({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // If autoProgression is on, ensure every strength exercise has weightIncrement
+    if (formData.autoProgression) {
+      for (const day of formData.workoutDays) {
+        for (const ex of day.exercises) {
+          const isCardio = ex.muscleGroup === 'CARDIO' || !!ex.cardioType;
+          if (!isCardio && !ex.weightIncrement) {
+            alert(`Imposta l'incremento peso (+kg) per l'esercizio "${ex.name}" prima di salvare.`);
+            return;
+          }
+        }
+      }
+    }
 
     // If editing an existing plan, show confirmation dialog first
     if (plan?.id) {
@@ -780,6 +805,29 @@ function PlanForm({
               </p>
             </div>
 
+            {/* Auto Progression Toggle */}
+            <div className="flex items-center justify-between py-3 border rounded-xl px-4 bg-gray-50">
+              <div>
+                <p className="font-medium text-sm text-gray-800">Progressione automatica</p>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Aggiusta reps e peso in base ai tuoi feedback di difficoltà
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setFormData({ ...formData, autoProgression: !formData.autoProgression })}
+                className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${
+                  formData.autoProgression ? 'bg-primary-500' : 'bg-gray-300'
+                }`}
+              >
+                <span
+                  className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition duration-200 ${
+                    formData.autoProgression ? 'translate-x-5' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+            </div>
+
             {/* Workout Days */}
             <div className="border-t pt-4 mt-4">
               <div className="flex items-center justify-between mb-3">
@@ -853,52 +901,92 @@ function PlanForm({
                             <Trash2 size={16} />
                           </button>
                         </div>
-                        <div className="flex items-center gap-2 text-sm flex-wrap">
-                          <div className="flex items-center gap-1">
-                            <span className="text-gray-500">Serie:</span>
-                            <input
-                              type="number"
-                              value={exercise.sets}
-                              onChange={(e) => updateExercise(dayIndex, exIndex, { ...exercise, sets: parseInt(e.target.value) || 1 })}
-                              className="input w-12 sm:w-14 text-sm text-center py-1"
-                              min="1"
-                            />
+                        {(exercise.muscleGroup === 'CARDIO' || !!exercise.cardioType) ? (
+                          <div className="flex items-center gap-2 text-sm flex-wrap">
+                            <span className="text-xs px-2 py-0.5 bg-orange-100 text-orange-700 rounded">Cardio</span>
+                            <div className="flex items-center gap-1">
+                              <span className="text-gray-500">Durata:</span>
+                              <input
+                                type="number"
+                                value={exercise.durationMinutes || ''}
+                                onChange={(e) => updateExercise(dayIndex, exIndex, { ...exercise, durationMinutes: e.target.value ? parseInt(e.target.value) : undefined })}
+                                className="input w-16 text-sm text-center py-1"
+                                min="1"
+                                placeholder="min"
+                              />
+                              <span className="text-gray-400">min</span>
+                            </div>
                           </div>
-                          <div className="flex items-center gap-1">
-                            <span className="text-gray-500">Rep:</span>
-                            <input
-                              type="number"
-                              value={exercise.reps}
-                              onChange={(e) => updateExercise(dayIndex, exIndex, { ...exercise, reps: parseInt(e.target.value) || 1 })}
-                              className="input w-12 sm:w-14 text-sm text-center py-1"
-                              min="1"
-                            />
-                            {exercise.maxReps && exercise.maxReps !== exercise.reps && (
-                              <span className="text-gray-400">-{exercise.maxReps}</span>
-                            )}
+                        ) : (
+                          <div className="flex items-center gap-2 text-sm flex-wrap">
+                            <div className="flex items-center gap-1">
+                              <span className="text-gray-500">Serie:</span>
+                              <input
+                                type="number"
+                                value={exercise.sets}
+                                onChange={(e) => updateExercise(dayIndex, exIndex, { ...exercise, sets: parseInt(e.target.value) || 1 })}
+                                className="input w-12 sm:w-14 text-sm text-center py-1"
+                                min="1"
+                              />
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <span className="text-gray-500">Rep:</span>
+                              <input
+                                type="number"
+                                value={exercise.reps}
+                                onChange={(e) => updateExercise(dayIndex, exIndex, { ...exercise, reps: parseInt(e.target.value) || 1 })}
+                                className="input w-12 sm:w-14 text-sm text-center py-1"
+                                min="1"
+                              />
+                              {exercise.maxReps && exercise.maxReps !== exercise.reps && (
+                                <span className="text-gray-400">-{exercise.maxReps}</span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <span className="text-gray-500">Peso:</span>
+                              <input
+                                type="number"
+                                value={exercise.weight || ''}
+                                onChange={(e) => updateExercise(dayIndex, exIndex, { ...exercise, weight: e.target.value ? parseFloat(e.target.value) : undefined })}
+                                className="input w-14 sm:w-16 text-sm text-center py-1"
+                                step="0.5"
+                                placeholder="-"
+                              />
+                              <span className="text-gray-400">kg</span>
+                            </div>
+                            {(() => {
+                              const isCardio = (exercise.muscleGroup as string) === 'CARDIO' || !!exercise.cardioType;
+                              if (isCardio) return null;
+                              const required = !!formData.autoProgression;
+                              const missing = required && !exercise.weightIncrement;
+                              return (
+                                <div className="flex items-center gap-1">
+                                  <span className={`text-sm ${missing ? 'text-red-500 font-medium' : 'text-gray-500'}`}>
+                                    +kg{required ? <span className="text-red-500">*</span> : ''}:
+                                  </span>
+                                  <input
+                                    type="number"
+                                    value={exercise.weightIncrement || ''}
+                                    onChange={(e) => updateExercise(dayIndex, exIndex, { ...exercise, weightIncrement: e.target.value ? parseFloat(e.target.value) : undefined })}
+                                    className={`input w-14 sm:w-16 text-sm text-center py-1 ${missing ? 'border-red-400 focus:border-red-500' : ''}`}
+                                    step="0.5"
+                                    min="0.5"
+                                    placeholder="2.5"
+                                  />
+                                </div>
+                              );
+                            })()}
+                            <label className="flex items-center gap-1 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={exercise.useTwoDumbbells || false}
+                                onChange={(e) => updateExercise(dayIndex, exIndex, { ...exercise, useTwoDumbbells: e.target.checked })}
+                                className="w-4 h-4 rounded border-gray-300 text-primary-600"
+                              />
+                              <span className="text-gray-500">x2</span>
+                            </label>
                           </div>
-                          <div className="flex items-center gap-1">
-                            <span className="text-gray-500">Peso:</span>
-                            <input
-                              type="number"
-                              value={exercise.weight || ''}
-                              onChange={(e) => updateExercise(dayIndex, exIndex, { ...exercise, weight: e.target.value ? parseFloat(e.target.value) : undefined })}
-                              className="input w-14 sm:w-16 text-sm text-center py-1"
-                              step="0.5"
-                              placeholder="-"
-                            />
-                            <span className="text-gray-400">kg</span>
-                          </div>
-                          <label className="flex items-center gap-1 cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={exercise.useTwoDumbbells || false}
-                              onChange={(e) => updateExercise(dayIndex, exIndex, { ...exercise, useTwoDumbbells: e.target.checked })}
-                              className="w-4 h-4 rounded border-gray-300 text-primary-600"
-                            />
-                            <span className="text-gray-500">x2</span>
-                          </label>
-                        </div>
+                        )}
                       </div>
                     ))}
                     <button
@@ -1055,6 +1143,7 @@ const MUSCLE_GROUP_LABELS: Record<MuscleGroup, string> = {
   DORSALI: 'Dorsali',
   GAMBE: 'Gambe',
   CORE: 'Core',
+  CARDIO: 'Cardio',
 };
 
 function ExercisePicker({
@@ -1148,9 +1237,13 @@ function ExercisePicker({
                       >
                         <p className="font-medium">{template.name}</p>
                         <p className="text-sm text-gray-500">
-                          {template.defaultSets} serie × {template.minReps}-{template.maxReps} rep
-                          {template.initialWeight && ` • ${template.initialWeight}kg`}
-                          {template.useTwoDumbbells && ' (x2)'}
+                          {template.muscleGroup === 'CARDIO' ? (
+                            <>Cardio{template.defaultDurationMinutes ? ` • ${template.defaultDurationMinutes} min` : ''}</>
+                          ) : (
+                            <>{template.defaultSets} serie × {template.minReps}-{template.maxReps} rep
+                            {template.initialWeight && ` • ${template.initialWeight}kg`}
+                            {template.useTwoDumbbells && ' (x2)'}</>
+                          )}
                         </p>
                       </button>
                     ))}
@@ -1317,11 +1410,19 @@ function PlanView({
                     <div key={exercise.id || exIndex} className="flex items-center gap-2 text-sm min-w-0">
                       <span className="text-gray-400 flex-shrink-0">{exIndex + 1}.</span>
                       <span className="flex-1 truncate">{exercise.name}</span>
-                      <span className="text-primary-600 font-medium">
-                        {exercise.sets}x{exercise.reps}
-                      </span>
-                      {exercise.weight && (
-                        <span className="text-gray-500">{exercise.weight}kg</span>
+                      {(exercise.muscleGroup === 'CARDIO' || !!exercise.cardioType) ? (
+                        <span className="text-orange-500 font-medium">
+                          {exercise.durationMinutes ? `${exercise.durationMinutes} min` : 'Cardio'}
+                        </span>
+                      ) : (
+                        <>
+                          <span className="text-primary-600 font-medium">
+                            {exercise.sets}x{exercise.reps}
+                          </span>
+                          {exercise.weight && (
+                            <span className="text-gray-500">{exercise.weight}kg</span>
+                          )}
+                        </>
                       )}
                     </div>
                   ))}

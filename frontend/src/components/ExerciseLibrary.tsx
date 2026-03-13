@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, Trash2, Edit2, Dumbbell, ChevronDown, ChevronUp } from 'lucide-react';
 import { exerciseTemplateApi } from '../services/api';
-import type { ExerciseTemplate, MuscleGroup } from '../types';
+import type { CardioType, ExerciseTemplate, MuscleGroup } from '../types';
+import { CARDIO_TYPE_LABELS } from '../types';
 
 const MUSCLE_GROUPS: { key: MuscleGroup; label: string }[] = [
   { key: 'PETTO', label: 'Petto' },
@@ -12,6 +13,7 @@ const MUSCLE_GROUPS: { key: MuscleGroup; label: string }[] = [
   { key: 'DORSALI', label: 'Dorsali' },
   { key: 'GAMBE', label: 'Gambe' },
   { key: 'CORE', label: 'Core' },
+  { key: 'CARDIO', label: 'Cardio' },
 ];
 
 export default function ExerciseLibrary() {
@@ -134,9 +136,18 @@ export default function ExerciseLibrary() {
                         <div className="flex-1 min-w-0">
                           <p className="font-medium truncate">{exercise.name}</p>
                           <p className="text-sm text-gray-500 truncate">
-                            {exercise.defaultSets} serie × {exercise.minReps}-{exercise.maxReps} rep
-                            {exercise.initialWeight && ` • ${exercise.initialWeight}kg`}
-                            {exercise.useTwoDumbbells && ' (x2)'}
+                            {exercise.muscleGroup === 'CARDIO' ? (
+                              <>
+                                {exercise.cardioType ? CARDIO_TYPE_LABELS[exercise.cardioType as CardioType] : '—'}
+                                {exercise.defaultDurationMinutes && ` • ${exercise.defaultDurationMinutes} min`}
+                              </>
+                            ) : (
+                              <>
+                                {exercise.defaultSets} serie × {exercise.minReps}-{exercise.maxReps} rep
+                                {exercise.initialWeight && ` • ${exercise.initialWeight}kg`}
+                                {exercise.useTwoDumbbells && ' (x2)'}
+                              </>
+                            )}
                           </p>
                         </div>
                         <div className="flex items-center gap-1 flex-shrink-0">
@@ -209,6 +220,8 @@ function ExerciseForm({
     }
   );
 
+  const isCardio = formData.muscleGroup === 'CARDIO';
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     onSubmit(formData);
@@ -225,25 +238,21 @@ function ExerciseForm({
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Nome esercizio
-              </label>
-              <input
-                type="text"
-                value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                className="input"
-                placeholder="es. Panca piana"
-                required
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
                 Gruppo muscolare
               </label>
               <select
                 value={formData.muscleGroup}
-                onChange={(e) => setFormData({ ...formData, muscleGroup: e.target.value as MuscleGroup })}
+                onChange={(e) => {
+                  const mg = e.target.value as MuscleGroup;
+                  setFormData({
+                    ...formData,
+                    muscleGroup: mg,
+                    ...(mg === 'CARDIO'
+                      ? { defaultSets: undefined, minReps: undefined, maxReps: undefined, initialWeight: undefined, useTwoDumbbells: false }
+                      : { cardioType: undefined, defaultDurationMinutes: undefined, defaultSets: formData.defaultSets ?? 3, minReps: formData.minReps ?? 8, maxReps: formData.maxReps ?? 12 }
+                    ),
+                  });
+                }}
                 className="input"
                 required
               >
@@ -255,74 +264,132 @@ function ExerciseForm({
               </select>
             </div>
 
-            <div className="grid grid-cols-3 gap-3">
+            {(!isCardio || formData.cardioType === 'PERSONALIZZATO') && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Serie
+                  Nome esercizio
                 </label>
                 <input
-                  type="number"
-                  value={formData.defaultSets}
-                  onChange={(e) => setFormData({ ...formData, defaultSets: parseInt(e.target.value) || 1 })}
-                  className="input text-center"
-                  min="1"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Rep min
-                </label>
-                <input
-                  type="number"
-                  value={formData.minReps}
-                  onChange={(e) => setFormData({ ...formData, minReps: parseInt(e.target.value) || 1 })}
-                  className="input text-center"
-                  min="1"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Rep max
-                </label>
-                <input
-                  type="number"
-                  value={formData.maxReps}
-                  onChange={(e) => setFormData({ ...formData, maxReps: parseInt(e.target.value) || 1 })}
-                  className="input text-center"
-                  min="1"
-                  required
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Peso iniziale (kg)
-                </label>
-                <input
-                  type="number"
-                  value={formData.initialWeight || ''}
-                  onChange={(e) => setFormData({ ...formData, initialWeight: e.target.value ? parseFloat(e.target.value) : undefined })}
+                  type="text"
+                  value={formData.name}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                   className="input"
-                  step="0.5"
-                  placeholder="Opzionale"
+                  placeholder=""
+                  required
                 />
               </div>
-              <div className="flex items-end pb-2">
-                <label className="flex items-center gap-2 cursor-pointer">
+            )}
+
+            {isCardio ? (
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Tipo di cardio
+                  </label>
+                  <select
+                    value={formData.cardioType || ''}
+                    onChange={(e) => {
+                      const ct = e.target.value as CardioType;
+                      setFormData({
+                        ...formData,
+                        cardioType: ct || undefined,
+                        name: ct && ct !== 'PERSONALIZZATO' ? CARDIO_TYPE_LABELS[ct] : '',
+                      });
+                    }}
+                    className="input"
+                    required
+                  >
+                    <option value="">Seleziona tipo</option>
+                    {(Object.keys(CARDIO_TYPE_LABELS) as CardioType[]).map((key) => (
+                      <option key={key} value={key}>{CARDIO_TYPE_LABELS[key]}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Durata (minuti)
+                  </label>
                   <input
-                    type="checkbox"
-                    checked={formData.useTwoDumbbells || false}
-                    onChange={(e) => setFormData({ ...formData, useTwoDumbbells: e.target.checked })}
-                    className="w-5 h-5 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                    type="number"
+                    value={formData.defaultDurationMinutes || ''}
+                    onChange={(e) => setFormData({ ...formData, defaultDurationMinutes: e.target.value ? parseInt(e.target.value) : undefined })}
+                    className="input text-center"
+                    min="1"
+                    placeholder="es. 30"
                   />
-                  <span className="text-sm text-gray-700">Due manubri (x2)</span>
-                </label>
+                </div>
               </div>
-            </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Serie
+                    </label>
+                    <input
+                      type="number"
+                      value={formData.defaultSets ?? ''}
+                      onChange={(e) => setFormData({ ...formData, defaultSets: parseInt(e.target.value) || 1 })}
+                      className="input text-center"
+                      min="1"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Rep min
+                    </label>
+                    <input
+                      type="number"
+                      value={formData.minReps ?? ''}
+                      onChange={(e) => setFormData({ ...formData, minReps: parseInt(e.target.value) || 1 })}
+                      className="input text-center"
+                      min="1"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Rep max
+                    </label>
+                    <input
+                      type="number"
+                      value={formData.maxReps ?? ''}
+                      onChange={(e) => setFormData({ ...formData, maxReps: parseInt(e.target.value) || 1 })}
+                      className="input text-center"
+                      min="1"
+                      required
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Peso iniziale (kg)
+                    </label>
+                    <input
+                      type="number"
+                      value={formData.initialWeight || ''}
+                      onChange={(e) => setFormData({ ...formData, initialWeight: e.target.value ? parseFloat(e.target.value) : undefined })}
+                      className="input"
+                      step="0.5"
+                      placeholder="Opzionale"
+                    />
+                  </div>
+                  <div className="flex items-end pb-2">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={formData.useTwoDumbbells || false}
+                        onChange={(e) => setFormData({ ...formData, useTwoDumbbells: e.target.checked })}
+                        className="w-5 h-5 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                      />
+                      <span className="text-sm text-gray-700">Due manubri (x2)</span>
+                    </label>
+                  </div>
+                </div>
+              </>
+            )}
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">

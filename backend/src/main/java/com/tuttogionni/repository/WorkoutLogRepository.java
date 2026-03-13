@@ -17,7 +17,7 @@ public interface WorkoutLogRepository extends JpaRepository<WorkoutLog, Long> {
 
     List<WorkoutLog> findByUserIdAndDateBetweenOrderByDateDesc(Long userId, LocalDate startDate, LocalDate endDate);
 
-    Optional<WorkoutLog> findByUserIdAndWorkoutPlanIdAndDate(Long userId, Long workoutPlanId, LocalDate date);
+    List<WorkoutLog> findByUserIdAndWorkoutPlanIdAndDateOrderByCreatedAtDesc(Long userId, Long workoutPlanId, LocalDate date);
 
     @Query("SELECT wl FROM WorkoutLog wl WHERE wl.user.id = :userId AND wl.workoutPlan.id = :planId ORDER BY wl.date DESC, wl.createdAt DESC")
     List<WorkoutLog> findByUserIdAndPlanIdOrderByDateDesc(@Param("userId") Long userId, @Param("planId") Long planId);

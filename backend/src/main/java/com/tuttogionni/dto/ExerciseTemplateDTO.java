@@ -22,4 +22,8 @@ public class ExerciseTemplateDTO {
     private BigDecimal initialWeight;
     private Boolean useTwoDumbbells;
     private String notes;
+
+    // Cardio-specific fields
+    private String cardioType;
+    private Integer defaultDurationMinutes;
 }

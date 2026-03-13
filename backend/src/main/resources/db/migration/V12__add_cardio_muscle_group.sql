@@ -1,0 +1,1 @@
+ALTER TYPE muscle_group ADD VALUE 'CARDIO';
